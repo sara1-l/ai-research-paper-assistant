@@ -9,14 +9,12 @@ from ai_models.summarizer import summarize_text
 from pdf_processing.extract_tables import extract_tables_from_pdf
 from pdf_processing.extract_text import extract_text_from_pdf
 from research_search.semantic_search import search_research_papers
-from research_workspace.workspace import (
-    extract_texts_from_paths,
-    generate_combined_summary,
-    get_comparison_table,
-    get_trend_graphs,
-    get_research_gap_analysis,
-    analyze_current_paper_context,
-)
+from analysis.paper_analyzer import analyze_papers
+from analysis.paper_comparator import build_comparison_table
+from analysis.combined_summary import generate_combined_summary
+from analysis.trend_analysis import generate_trend_charts
+from analysis.research_gap import detect_research_gaps, get_gap_themes
+from analysis.current_paper_analysis import analyze_current_paper_contribution
 from visualization.graph_generator import (
     generate_matplotlib_charts,
     generate_plotly_charts,
@@ -391,6 +389,18 @@ def save_uploaded_pdf(uploaded_file) -> Path:
     return file_path
 
 
+def extract_texts_from_paths(paths: list) -> list[tuple[str, str]]:
+    """Extract text from multiple PDF paths. Returns (path, text) tuples."""
+    results = []
+    for p in paths:
+        try:
+            text = extract_text_from_pdf(str(p))
+            results.append((str(p), text or ""))
+        except Exception:
+            results.append((str(p), ""))
+    return results
+
+
 # -----------------------------
 # MAIN DASHBOARD (when file uploaded)
 # -----------------------------
@@ -555,65 +565,85 @@ if uploaded_file:
             papers_data = extract_texts_from_paths(all_paper_paths)
             current_title = Path(pdf_path).stem.replace("_", " ").replace("-", " ")
 
+            # Run extraction when papers change or on button click
+            analysis_key = str(sorted(all_paper_paths))
+            if "structured_papers" not in st.session_state or st.session_state.get("analysis_key") != analysis_key:
+                st.session_state.structured_papers = None
+                st.session_state.analysis_key = analysis_key
+
+            with ws_tabs[0]:
+                st.caption("Click below to extract structured information from all papers.")
+                if st.button("Extract Structured Information", type="primary", key="run_analysis"):
+                    with st.spinner("Extracting structured data from papers (this may take a minute)..."):
+                        try:
+                            structured = analyze_papers(
+                                papers_data,
+                                current_paper_title=current_title,
+                            )
+                            st.session_state.structured_papers = structured
+                            st.toast("Analysis complete. View other tabs.", icon="✅")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Extraction failed: {e}")
+
+            structured_papers = st.session_state.get("structured_papers")
+
             with ws_tabs[1]:
                 st.subheader("Combined Summary")
-                if st.button("Generate Combined Summary", key="gen_combined"):
-                    with st.spinner("Generating summaries for all papers..."):
-                        try:
-                            paper_sums, overall = generate_combined_summary(
-                                papers_data, current_paper_title=current_title
-                            )
-                            st.session_state.combined_summaries = (paper_sums, overall)
-                        except Exception as e:
-                            st.error(f"Failed: {e}")
-                if "combined_summaries" in st.session_state:
-                    paper_sums, overall = st.session_state.combined_summaries
+                if structured_papers:
+                    paper_sums, overall = generate_combined_summary(structured_papers)
                     for ps in paper_sums:
                         st.markdown(ps)
                         st.markdown("---")
                     st.markdown("**Overall Research Summary**")
                     st.write(overall)
+                else:
+                    st.info("Run **Extract Structured Information** in the Upload Papers tab first.")
 
             with ws_tabs[2]:
                 st.subheader("Comparison Table")
-                try:
-                    comp_df = get_comparison_table(papers_data, current_paper_title=current_title)
+                if structured_papers:
+                    comp_df = build_comparison_table(structured_papers)
                     st.dataframe(comp_df, use_container_width=True)
-                except Exception as e:
-                    st.warning(f"Could not build table: {e}")
+                else:
+                    st.info("Run **Extract Structured Information** first.")
 
             with ws_tabs[3]:
                 st.subheader("Research Trend Graphs")
-                try:
-                    comp_df = get_comparison_table(papers_data, current_paper_title=current_title)
-                    graphs = get_trend_graphs(comp_df)
-                    for name, fig in graphs.items():
-                        if fig is not None:
-                            st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.warning(f"Could not generate graphs: {e}")
+                if structured_papers:
+                    charts = generate_trend_charts(structured_papers)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if charts.get("methodology_bar"):
+                            st.plotly_chart(charts["methodology_bar"], use_container_width=True)
+                    with c2:
+                        if charts.get("dataset_pie"):
+                            st.plotly_chart(charts["dataset_pie"], use_container_width=True)
+                else:
+                    st.info("Run **Extract Structured Information** first.")
 
             with ws_tabs[4]:
                 st.subheader("Research Gap Analysis")
-                if "combined_summaries" in st.session_state:
-                    _, overall = st.session_state.combined_summaries
-                    summary_texts = [overall] if overall else []
-                    for _, text in papers_data:
-                        if text and text.strip():
-                            summary_texts.append(text[:1500])
-                    gap_text = get_research_gap_analysis(summary_texts)
+                if structured_papers:
+                    gap_text = detect_research_gaps(structured_papers)
                     st.markdown(gap_text)
                 else:
-                    st.info("Generate Combined Summary first.")
+                    st.info("Run **Extract Structured Information** first.")
 
             with ws_tabs[5]:
-                st.subheader("Current Paper Context Analysis")
-                other_summaries = []
-                if "combined_summaries" in st.session_state:
-                    paper_sums, _ = st.session_state.combined_summaries
-                    other_summaries = paper_sums[1:] if len(paper_sums) > 1 else []
-                ctx = analyze_current_paper_context(full_text, other_summaries)
-                st.markdown(ctx)
+                st.subheader("Current Paper Contribution Analysis")
+                if structured_papers:
+                    current = structured_papers[0]
+                    others = structured_papers[1:]
+                    gap_themes = get_gap_themes(structured_papers)
+                    ctx = analyze_current_paper_contribution(
+                        current,
+                        others,
+                        gap_themes=gap_themes,
+                    )
+                    st.markdown(ctx)
+                else:
+                    st.info("Run **Extract Structured Information** first.")
 
 else:
     st.markdown("<br>", unsafe_allow_html=True)
