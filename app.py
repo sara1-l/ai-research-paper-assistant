@@ -8,6 +8,15 @@ from streamlit_lottie import st_lottie
 from ai_models.summarizer import summarize_text
 from pdf_processing.extract_tables import extract_tables_from_pdf
 from pdf_processing.extract_text import extract_text_from_pdf
+from research_search.semantic_search import search_research_papers
+from research_workspace.workspace import (
+    extract_texts_from_paths,
+    generate_combined_summary,
+    get_comparison_table,
+    get_trend_graphs,
+    get_research_gap_analysis,
+    analyze_current_paper_context,
+)
 from visualization.graph_generator import (
     generate_matplotlib_charts,
     generate_plotly_charts,
@@ -296,6 +305,56 @@ with fc4:
     )
 
 # -----------------------------
+# RESEARCH PAPER SEARCH SECTION
+# -----------------------------
+st.markdown("---")
+st.subheader("🔍 Research Paper Search")
+st.markdown("Search for research papers online in real-time using the Semantic Scholar API.")
+st.markdown("<br>", unsafe_allow_html=True)
+
+col_input, col_btn = st.columns([3, 1])
+with col_input:
+    search_query = st.text_input(
+        "Enter Research Topic",
+        placeholder="e.g., groundwater contamination, machine learning, climate change",
+        label_visibility="collapsed",
+        key="search_query",
+    )
+with col_btn:
+    search_clicked = st.button("Search Papers", type="primary", use_container_width=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+if search_clicked:
+    if not search_query or not search_query.strip():
+        st.warning("Please enter a research topic.")
+    else:
+        with st.spinner("Fetching research papers..."):
+            try:
+                df_papers = search_research_papers(search_query.strip())
+            except Exception:
+                st.error("Error fetching research papers.")
+            else:
+                if df_papers.empty:
+                    st.info("No research papers found.")
+                else:
+                    st.dataframe(
+                        df_papers,
+                        use_container_width=True,
+                        column_config={
+                            "Title": st.column_config.TextColumn("Title", width="large"),
+                            "Authors": st.column_config.TextColumn("Authors", width="medium"),
+                            "Year": st.column_config.NumberColumn("Year", format="%d"),
+                            "Citations": st.column_config.NumberColumn("Citations", format="%d"),
+                            "URL": st.column_config.LinkColumn("URL", display_text="Open Paper"),
+                        },
+                        hide_index=True,
+                    )
+                    st.caption(f"Found {len(df_papers)} papers. Click **Open Paper** to view the research.")
+
+st.markdown("---")
+
+# -----------------------------
 # UPLOAD SECTION
 # -----------------------------
 st.markdown("<br>", unsafe_allow_html=True)
@@ -338,11 +397,17 @@ def save_uploaded_pdf(uploaded_file) -> Path:
 if uploaded_file:
     if "last_uploaded_file" not in st.session_state:
         st.session_state.last_uploaded_file = None
+    if "workflow_mode" not in st.session_state:
+        st.session_state.workflow_mode = None
+    if "research_papers" not in st.session_state:
+        st.session_state.research_papers = []
     if st.session_state.last_uploaded_file != uploaded_file.name:
         st.session_state.last_uploaded_file = uploaded_file.name
         st.session_state.summary = None
+        st.session_state.workflow_mode = None
+        st.session_state.research_papers = []
 
-    st.success("✓ PDF uploaded successfully. Analyzing document...")
+    st.success("✓ PDF uploaded successfully.")
     pdf_path = save_uploaded_pdf(uploaded_file)
 
     # Backend extraction (unchanged)
@@ -359,151 +424,196 @@ if uploaded_file:
         tables = []
 
     # -----------------------------
-    # TWO-COLUMN DASHBOARD LAYOUT
+    # VIEW MODE vs RESEARCH MODE
     # -----------------------------
-    st.markdown("---")
-    st.markdown(
-        '<p class="section-title">📋 Research Dashboard</p>',
-        unsafe_allow_html=True,
-    )
+    if st.session_state.workflow_mode is None:
+        st.markdown("---")
+        st.subheader("What would you like to do?")
+        col_v, col_r = st.columns(2)
+        with col_v:
+            if st.button("1️⃣ View Paper", type="primary", use_container_width=True, key="btn_view"):
+                st.session_state.workflow_mode = "view"
+                st.rerun()
+        with col_r:
+            if st.button("2️⃣ Research With Papers", type="primary", use_container_width=True, key="btn_research"):
+                st.session_state.workflow_mode = "research"
+                st.rerun()
 
-    col_left, col_right = st.columns([2, 1])
+    elif st.session_state.workflow_mode == "view":
+        # -----------------------------
+        # VIEW PAPER MODE - Tabs
+        # -----------------------------
+        if st.button("← Back to mode selection", key="back_view"):
+            st.session_state.workflow_mode = None
+            st.rerun()
+        st.markdown("---")
+        st.markdown('<p class="section-title">📋 View Paper</p>', unsafe_allow_html=True)
+        view_tabs = st.tabs(["📄 Extracted Text", "🧠 Summary", "📊 Tables", "📈 Graphs"])
 
-    with col_left:
-        st.markdown(
-            """
-            <div class="dashboard-section">
-                <div class="section-title">📄 Extracted Paper Text</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.text_area(
-            "Paper Content",
-            full_text[:5000],
-            height=400,
-            label_visibility="collapsed",
-            key="extracted_text",
-        )
+        with view_tabs[0]:
+            st.subheader("Extracted Paper Text")
+            st.text_area("Paper Content", full_text[:5000], height=400, label_visibility="collapsed", key="extracted_text")
 
-    with col_right:
-        st.markdown(
-            """
-            <div class="dashboard-section">
-                <div class="section-title">🧠 AI Summary</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with view_tabs[1]:
+            st.subheader("AI Generated Summary")
+            if not full_text:
+                st.info("No text available for summarization.")
+            else:
+                if "summary" not in st.session_state:
+                    st.session_state.summary = None
+                if st.button("Generate Summary", type="primary", key="gen_sum_view"):
+                    with st.spinner("🤖 AI analyzing the research paper..."):
+                        try:
+                            structured = summarize_text(full_text)
+                            st.session_state.summary = structured
+                            st.toast("✅ Analysis complete!", icon="✅")
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+                structured = st.session_state.summary
+                if structured:
+                    st.markdown("**Problem**"); st.write(structured.get("problem", ""))
+                    st.markdown("**Methodology**"); st.write(structured.get("methodology", ""))
+                    st.markdown("**Results**"); st.write(structured.get("results", ""))
+                    st.markdown("**Conclusion**"); st.write(structured.get("conclusion", ""))
 
-        if not full_text:
-            st.info("No text available for summarization.")
-        else:
-            if "summary" not in st.session_state:
-                st.session_state.summary = None
+        with view_tabs[2]:
+            st.subheader("Detected Tables")
+            if tables:
+                for i, table in enumerate(tables):
+                    st.markdown(f'<div class="table-card"><strong>Table {i + 1}</strong></div>', unsafe_allow_html=True)
+                    st.dataframe(table, use_container_width=True)
+            else:
+                st.info("No tables found.")
 
-            if st.button("Generate Summary", type="primary", use_container_width=True):
-                with st.spinner("🤖 AI analyzing the research paper..."):
-                    try:
-                        structured = summarize_text(full_text)
-                        st.session_state.summary = structured
-                        st.toast("✅ Analysis complete! Summary ready.", icon="✅")
-                    except Exception as e:
-                        st.error(f"Failed to generate summary: {e}")
-                        st.session_state.summary = None
+        with view_tabs[3]:
+            st.subheader("Automatic Graph Generation")
+            if tables:
+                df_t = tables[0]
+                try:
+                    mpl_figs = generate_matplotlib_charts(df_t)
+                    plotly_figs = generate_plotly_charts(df_t)
+                except ValueError:
+                    mpl_figs, plotly_figs = {}, {}
+                g1, g2 = st.columns(2)
+                with g1:
+                    if "line" in plotly_figs:
+                        st.plotly_chart(plotly_figs["line"], use_container_width=True)
+                    elif "line" in mpl_figs:
+                        st.pyplot(mpl_figs["line"])
+                    if "pie" in plotly_figs:
+                        st.plotly_chart(plotly_figs["pie"], use_container_width=True)
+                    elif "pie" in mpl_figs:
+                        st.pyplot(mpl_figs["pie"])
+                with g2:
+                    if "bar" in plotly_figs:
+                        st.plotly_chart(plotly_figs["bar"], use_container_width=True)
+                    elif "bar" in mpl_figs:
+                        st.pyplot(mpl_figs["bar"])
+            else:
+                st.info("No tables for graphs.")
 
-            structured = st.session_state.summary
-            if structured:
-                    st.markdown("**Problem**")
-                    st.write(structured.get("problem", ""))
+    elif st.session_state.workflow_mode == "research":
+        # -----------------------------
+        # RESEARCH WORKSPACE
+        # -----------------------------
+        if st.button("← Back to mode selection", key="back_research"):
+            st.session_state.workflow_mode = None
+            st.rerun()
+        st.markdown("---")
+        st.title("Research Workspace")
+        st.markdown("Conduct multi-paper analysis. Upload up to 5 supporting papers.")
 
-                    st.markdown("**Methodology**")
-                    st.write(structured.get("methodology", ""))
+        ws_tabs = st.tabs([
+            "📤 Upload Papers", "📝 Combined Summary", "📊 Comparison Table",
+            "📈 Trend Graphs", "🔬 Research Gap", "📄 Current Paper Analysis",
+        ])
 
-                    st.markdown("**Results**")
-                    st.write(structured.get("results", ""))
-
-                    st.markdown("**Conclusion**")
-                    st.write(structured.get("conclusion", ""))
-
-    # -----------------------------
-    # TABLES SECTION (styled cards)
-    # -----------------------------
-    st.markdown("---")
-    st.markdown(
-        '<p class="section-title">📊 Detected Tables</p>',
-        unsafe_allow_html=True,
-    )
-
-    if tables:
-        for i, table in enumerate(tables):
-            st.markdown(
-                f'<div class="table-card"><strong>Table {i + 1}</strong></div>',
-                unsafe_allow_html=True,
+        with ws_tabs[0]:
+            st.subheader("Upload Supporting Research Papers (Max: 5 PDFs)")
+            supporting = st.file_uploader(
+                "Upload PDFs",
+                type=["pdf"],
+                accept_multiple_files=True,
+                key="supporting_pdfs",
             )
-            st.dataframe(table, use_container_width=True)
-    else:
-        st.info("No tables found in this paper.")
+            if supporting and len(supporting) > 5:
+                st.warning("Maximum 5 papers allowed. Only the first 5 will be used.")
+                supporting = supporting[:5]
+            if supporting:
+                paths = [save_uploaded_pdf(f) for f in supporting]
+                st.session_state.research_papers = [str(p) for p in paths]
+                st.success(f"{len(supporting)} supporting paper(s) uploaded.")
+            else:
+                st.session_state.research_papers = []
 
-    # -----------------------------
-    # GRAPHS DASHBOARD (two-column grid)
-    # -----------------------------
-    st.markdown("---")
-    st.markdown(
-        '<p class="section-title">📈 Automatic Graph Generation</p>',
-        unsafe_allow_html=True,
-    )
+        all_paper_paths = [str(pdf_path)] + (st.session_state.get("research_papers") or [])
+        total_papers = len(all_paper_paths)
 
-    if not tables:
-        st.info("Upload a paper containing tables to generate graphs.")
-    else:
-        df: pd.DataFrame = tables[0]
-        st.caption("Source: Table 1")
-        st.dataframe(df, use_container_width=True)
+        if total_papers < 2:
+            st.warning("Upload at least 2 papers (current + 1 supporting) for research analysis.")
+        else:
+            papers_data = extract_texts_from_paths(all_paper_paths)
+            current_title = Path(pdf_path).stem.replace("_", " ").replace("-", " ")
 
-        try:
-            mpl_figs = generate_matplotlib_charts(df)
-            plotly_figs = generate_plotly_charts(df)
-        except ValueError as e:
-            st.warning(str(e))
-            mpl_figs, plotly_figs = {}, {}
+            with ws_tabs[1]:
+                st.subheader("Combined Summary")
+                if st.button("Generate Combined Summary", key="gen_combined"):
+                    with st.spinner("Generating summaries for all papers..."):
+                        try:
+                            paper_sums, overall = generate_combined_summary(
+                                papers_data, current_paper_title=current_title
+                            )
+                            st.session_state.combined_summaries = (paper_sums, overall)
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+                if "combined_summaries" in st.session_state:
+                    paper_sums, overall = st.session_state.combined_summaries
+                    for ps in paper_sums:
+                        st.markdown(ps)
+                        st.markdown("---")
+                    st.markdown("**Overall Research Summary**")
+                    st.write(overall)
 
-        # Two-column grid for Plotly charts
-        g1, g2 = st.columns(2)
+            with ws_tabs[2]:
+                st.subheader("Comparison Table")
+                try:
+                    comp_df = get_comparison_table(papers_data, current_paper_title=current_title)
+                    st.dataframe(comp_df, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Could not build table: {e}")
 
-        with g1:
-            if "line" in plotly_figs:
-                st.markdown('<div class="graph-card">**Line Chart**</div>', unsafe_allow_html=True)
-                st.plotly_chart(plotly_figs["line"], use_container_width=True)
-            elif "line" in mpl_figs:
-                st.markdown('<div class="graph-card">**Line Chart**</div>', unsafe_allow_html=True)
-                st.pyplot(mpl_figs["line"])
+            with ws_tabs[3]:
+                st.subheader("Research Trend Graphs")
+                try:
+                    comp_df = get_comparison_table(papers_data, current_paper_title=current_title)
+                    graphs = get_trend_graphs(comp_df)
+                    for name, fig in graphs.items():
+                        if fig is not None:
+                            st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Could not generate graphs: {e}")
 
-            if "pie" in plotly_figs:
-                st.markdown('<div class="graph-card">**Pie Chart**</div>', unsafe_allow_html=True)
-                st.plotly_chart(plotly_figs["pie"], use_container_width=True)
-            elif "pie" in mpl_figs:
-                st.markdown('<div class="graph-card">**Pie Chart**</div>', unsafe_allow_html=True)
-                st.pyplot(mpl_figs["pie"])
+            with ws_tabs[4]:
+                st.subheader("Research Gap Analysis")
+                if "combined_summaries" in st.session_state:
+                    _, overall = st.session_state.combined_summaries
+                    summary_texts = [overall] if overall else []
+                    for _, text in papers_data:
+                        if text and text.strip():
+                            summary_texts.append(text[:1500])
+                    gap_text = get_research_gap_analysis(summary_texts)
+                    st.markdown(gap_text)
+                else:
+                    st.info("Generate Combined Summary first.")
 
-        with g2:
-            if "bar" in plotly_figs:
-                st.markdown('<div class="graph-card">**Bar Chart**</div>', unsafe_allow_html=True)
-                st.plotly_chart(plotly_figs["bar"], use_container_width=True)
-            elif "bar" in mpl_figs:
-                st.markdown('<div class="graph-card">**Bar Chart**</div>', unsafe_allow_html=True)
-                st.pyplot(mpl_figs["bar"])
-
-        if mpl_figs or plotly_figs:
-            if st.checkbox("Show download options for charts"):
-                images = export_all_charts_to_images(mpl_figs, plotly_figs)
-                for (backend, chart_type), img_bytes in images.items():
-                    st.download_button(
-                        label=f"Download {backend} {chart_type} chart",
-                        data=img_bytes,
-                        file_name=f"{backend}_{chart_type}_chart.png",
-                        mime="image/png",
-                    )
+            with ws_tabs[5]:
+                st.subheader("Current Paper Context Analysis")
+                other_summaries = []
+                if "combined_summaries" in st.session_state:
+                    paper_sums, _ = st.session_state.combined_summaries
+                    other_summaries = paper_sums[1:] if len(paper_sums) > 1 else []
+                ctx = analyze_current_paper_context(full_text, other_summaries)
+                st.markdown(ctx)
 
 else:
     st.markdown("<br>", unsafe_allow_html=True)

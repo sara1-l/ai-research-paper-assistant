@@ -1,0 +1,15 @@
+streamlit
+requests
+pandas
+plotly
+pymupdf
+pdfplumber
+transformers
+torch
+camelot-py
+numpy
+matplotlib
+sentence-transformers
+langchain
+faiss-cpu
+streamlit-lottie
