@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Protocol, Tuple
 
 import numpy as np
 
 from ai_models.embeddings import generate_embeddings
 from pdf_processing.extract_text import extract_text_from_pdf
-from rag.vector_store import VectorStore, create_faiss_index, search_similar_chunks
+from rag.vector_store import create_faiss_index
+from database.session import get_engine
+from rag.pgvector_store import PgVectorStore
 from utils.text_splitter import simple_text_splitter
+from utils.doc_ids import stable_document_id
+import os
+
+
+class SearchableStore(Protocol):
+    def search(self, query_embedding: np.ndarray, top_k: int = 5) -> List[Tuple[str, float]]: ...
 
 
 @dataclass
@@ -23,7 +31,7 @@ class RAGSession:
 
     chunks: List[str]
     embeddings: np.ndarray
-    vector_store: VectorStore
+    vector_store: SearchableStore
 
     @classmethod
     def from_pdf(
@@ -44,7 +52,14 @@ class RAGSession:
         full_text = extract_text_from_pdf(pdf_path)
         chunks = simple_text_splitter(full_text, max_chars=max_chars, overlap=overlap)
         embeddings = generate_embeddings(chunks)
-        vector_store = create_faiss_index(embeddings, chunks)
+        backend = os.getenv("VECTOR_BACKEND", "faiss").strip().lower()
+        if backend == "pgvector":
+            doc_id = stable_document_id(pdf_path)
+            store = PgVectorStore(engine=get_engine(), document_id=doc_id)
+            store.upsert_document(chunks=chunks, embeddings=embeddings)
+            vector_store = store
+        else:
+            vector_store = create_faiss_index(embeddings, chunks)
         return cls(chunks=chunks, embeddings=embeddings, vector_store=vector_store)
 
     def answer_question(self, question: str, top_k: int = 5) -> str:
@@ -66,7 +81,7 @@ class RAGSession:
         question_embedding = generate_embeddings([question])[0]
 
         # Retrieve the most relevant chunks.
-        retrieved = search_similar_chunks(self.vector_store, question_embedding, top_k=top_k)
+        retrieved = self.vector_store.search(question_embedding, top_k=top_k)
         retrieved_chunks = [chunk for chunk, _ in retrieved]
 
         if not retrieved_chunks:

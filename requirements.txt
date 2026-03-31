@@ -1,4 +1,5 @@
 streamlit
+python-dotenv
 requests
 pandas
 plotly
@@ -13,3 +14,7 @@ sentence-transformers
 langchain
 faiss-cpu
 streamlit-lottie
+sqlalchemy
+psycopg2-binary
+pgvector
+werkzeug

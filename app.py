@@ -1,9 +1,45 @@
 from pathlib import Path
+import os
+
+try:
+    from dotenv import load_dotenv
+
+    # Default dotenv does NOT override existing OS env vars. A Windows "DATABASE_URL"
+    # (e.g. localhost/demodb) would ignore .env — use override so `.env` wins locally.
+    _env_path = Path(__file__).resolve().parent / ".env"
+    load_dotenv(_env_path, override=os.getenv("DOTENV_OVERRIDE", "1") == "1")
+except ImportError:
+    # Install with: pip install python-dotenv  (or pip install -r requirements.txt)
+    pass
 
 import pandas as pd
 import requests
 import streamlit as st
 from streamlit_lottie import st_lottie
+
+
+def _apply_streamlit_secrets_to_environ() -> None:
+    """Streamlit Community Cloud exposes config in st.secrets, not os.environ."""
+    try:
+        from streamlit.errors import StreamlitSecretNotFoundError
+    except ImportError:
+
+        class StreamlitSecretNotFoundError(Exception):
+            pass
+
+    try:
+        sec = st.secrets
+        for key in ("DATABASE_URL", "VECTOR_BACKEND", "SKIP_AUTH", "DOTENV_OVERRIDE"):
+            if key in sec and str(sec[key]).strip():
+                os.environ[key] = str(sec[key]).strip()
+    except StreamlitSecretNotFoundError:
+        # No .streamlit/secrets.toml locally — use .env / OS env only.
+        return
+    except Exception:
+        return
+
+
+_apply_streamlit_secrets_to_environ()
 
 from ai_models.summarizer import summarize_text
 from pdf_processing.extract_tables import extract_tables_from_pdf
@@ -20,12 +56,26 @@ from visualization.graph_generator import (
     generate_plotly_charts,
     export_all_charts_to_images,
 )
+from rag.chat_engine import process_uploaded_pdf, answer_question_from_session
+from auth.streamlit_gate import (
+    database_auth_enabled,
+    init_auth_session_state,
+    is_authenticated,
+    render_login_register_and_stop,
+    render_sidebar_account,
+)
 
 st.set_page_config(
     page_title="AI Research Paper Assistant",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+init_auth_session_state()
+if database_auth_enabled() and not is_authenticated():
+    render_login_register_and_stop()
+
+render_sidebar_account()
 
 # -----------------------------
 # LOTTIE HELPER
@@ -458,7 +508,7 @@ if uploaded_file:
             st.rerun()
         st.markdown("---")
         st.markdown('<p class="section-title">📋 View Paper</p>', unsafe_allow_html=True)
-        view_tabs = st.tabs(["📄 Extracted Text", "🧠 Summary", "📊 Tables", "📈 Graphs"])
+        view_tabs = st.tabs(["📄 Extracted Text", "🧠 Summary", "📊 Tables", "📈 Graphs", "💬 Ask (RAG)"])
 
         with view_tabs[0]:
             st.subheader("Extracted Paper Text")
@@ -521,6 +571,42 @@ if uploaded_file:
                         st.pyplot(mpl_figs["bar"])
             else:
                 st.info("No tables for graphs.")
+
+        with view_tabs[4]:
+            st.subheader("Ask Questions (RAG Retrieval)")
+            st.caption(
+                "This uses a retrieval step over your PDF chunks. "
+                "Set `VECTOR_BACKEND=pgvector` + `DATABASE_URL` to persist chunks in Postgres (DBaaS)."
+            )
+
+            if "rag_session" not in st.session_state:
+                st.session_state.rag_session = None
+                st.session_state.rag_session_pdf = None
+
+            if st.session_state.rag_session is None or st.session_state.rag_session_pdf != str(pdf_path):
+                with st.spinner("Indexing PDF for retrieval..."):
+                    try:
+                        st.session_state.rag_session = process_uploaded_pdf(str(pdf_path))
+                        st.session_state.rag_session_pdf = str(pdf_path)
+                    except Exception as e:
+                        st.error(f"Failed to prepare RAG index: {e}")
+                        st.session_state.rag_session = None
+
+            question = st.text_input("Ask a question about this paper", key="rag_question")
+            if st.button("Get answer", type="primary", key="rag_ask"):
+                if not st.session_state.rag_session:
+                    st.warning("RAG session not ready.")
+                elif not question or not question.strip():
+                    st.warning("Please enter a question.")
+                else:
+                    with st.spinner("Retrieving relevant passages..."):
+                        try:
+                            answer = answer_question_from_session(st.session_state.rag_session, question.strip(), top_k=5)
+                        except Exception as e:
+                            st.error(f"RAG failed: {e}")
+                        else:
+                            st.markdown("**Retrieved context (top matches):**")
+                            st.write(answer)
 
     elif st.session_state.workflow_mode == "research":
         # -----------------------------
