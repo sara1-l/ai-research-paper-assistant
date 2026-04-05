@@ -46,27 +46,24 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
     Replace missing or empty values in a DataFrame with "N/A".
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input DataFrame.
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with None, NaN, and empty strings replaced by "N/A".
-        Numeric columns (e.g., Year, Citations) keep numeric type where
-        possible; missing values become "N/A" after fillna.
+    Text columns use the string "N/A". Numeric columns keep numeric dtypes
+    with NaN for missing values so Streamlit NumberColumn and charts work.
     """
     if df.empty:
         return df
 
     result = df.copy()
 
+    # These columns must stay numeric (NaN when missing) for Streamlit NumberColumn.
+    # They often arrive as object dtype from JSON (mixed None/int/str), so do not rely
+    # on is_numeric_dtype alone — fillna("N/A") would break int64 formatting.
+    _numeric_names = frozenset({"Year", "Citations"})
+
     for col in result.columns:
-        # Fill NaN/None with "N/A"
+        if col in _numeric_names or pd.api.types.is_numeric_dtype(result[col]):
+            result[col] = pd.to_numeric(result[col], errors="coerce")
+            continue
         result[col] = result[col].fillna("N/A")
-        # Replace empty strings
         mask = result[col].astype(str).str.strip() == ""
         result.loc[mask, col] = "N/A"
 

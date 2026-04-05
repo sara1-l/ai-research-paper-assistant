@@ -144,4 +144,7 @@ def search_research_papers(query: str) -> pd.DataFrame:
         })
 
     df = pd.DataFrame(rows)
+    for _col in ("Year", "Citations"):
+        if _col in df.columns:
+            df[_col] = pd.to_numeric(df[_col], errors="coerce")
     return clean_dataframe(df)
