@@ -79,6 +79,8 @@ On a VM (Ubuntu example):
 
 ## Deploy (you can deploy now)
 
+**Order:** Almost every free host needs your code on **GitHub** first (**push**), then you connect the repo in the host’s UI. Deploying **before** a successful push only works if you use **Docker on your own machine/VM** or a CLI like **Fly.io** from a local folder.
+
 ### Option A — Streamlit Community Cloud (simplest UI)
 
 1. Push the repo to **GitHub** (keep **`.env` out of git**; use `.gitignore` for `.env`).

@@ -1,0 +1,13 @@
+# Render.com: Dashboard → Blueprints → connect repo (after GitHub push).
+# Set DATABASE_URL in the dashboard (secret). See README "Deploy".
+services:
+  - type: web
+    name: ai-research-paper-assistant
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: VECTOR_BACKEND
+        value: faiss
+      - key: DATABASE_URL
+        sync: false

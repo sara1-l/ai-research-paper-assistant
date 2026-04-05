@@ -29,7 +29,13 @@ def _apply_streamlit_secrets_to_environ() -> None:
 
     try:
         sec = st.secrets
-        for key in ("DATABASE_URL", "VECTOR_BACKEND", "SKIP_AUTH", "DOTENV_OVERRIDE"):
+        for key in (
+            "DATABASE_URL",
+            "VECTOR_BACKEND",
+            "SKIP_AUTH",
+            "DOTENV_OVERRIDE",
+            "SEMANTICSCHOLAR_API_KEY",
+        ):
             if key in sec and str(sec[key]).strip():
                 os.environ[key] = str(sec[key]).strip()
     except StreamlitSecretNotFoundError:
@@ -38,8 +44,6 @@ def _apply_streamlit_secrets_to_environ() -> None:
     except Exception:
         return
 
-
-_apply_streamlit_secrets_to_environ()
 
 from ai_models.summarizer import summarize_text
 from pdf_processing.extract_tables import extract_tables_from_pdf
@@ -70,6 +74,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# Must run after set_page_config (first Streamlit command); otherwise Cloud secrets may not apply.
+_apply_streamlit_secrets_to_environ()
 
 init_auth_session_state()
 if database_auth_enabled() and not is_authenticated():
@@ -380,8 +387,13 @@ if search_clicked:
         with st.spinner("Fetching research papers..."):
             try:
                 df_papers = search_research_papers(search_query.strip())
-            except Exception:
-                st.error("Error fetching research papers.")
+            except Exception as e:
+                st.error(f"Error fetching research papers: {e}")
+                st.caption(
+                    "On Streamlit Cloud, Semantic Scholar often rate-limits shared IPs. "
+                    "Get a free key at semanticscholar.org/product/api and add "
+                    "**SEMANTICSCHOLAR_API_KEY** to App secrets (TOML) or your `.env` locally."
+                )
             else:
                 if df_papers.empty:
                     st.info("No research papers found.")
