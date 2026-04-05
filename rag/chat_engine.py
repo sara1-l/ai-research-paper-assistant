@@ -5,7 +5,6 @@ from typing import List, Protocol, Tuple
 
 import numpy as np
 
-from ai_models.embeddings import generate_embeddings
 from pdf_processing.extract_text import extract_text_from_pdf
 from rag.vector_store import create_faiss_index
 from database.session import get_engine
@@ -49,6 +48,8 @@ class RAGSession:
         3. Generate embeddings for those chunks.
         4. Store embeddings and chunks in a FAISS-based VectorStore.
         """
+        from ai_models.embeddings import generate_embeddings
+
         full_text = extract_text_from_pdf(pdf_path)
         chunks = simple_text_splitter(full_text, max_chars=max_chars, overlap=overlap)
         embeddings = generate_embeddings(chunks)
@@ -76,6 +77,8 @@ class RAGSession:
         """
         if not question or not question.strip():
             raise ValueError("Question must be a non-empty string.")
+
+        from ai_models.embeddings import generate_embeddings
 
         # Generate a single embedding for the question.
         question_embedding = generate_embeddings([question])[0]

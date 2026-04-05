@@ -11,8 +11,6 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ai_models.summarizer import summarize_text
-
 
 def _extract_title(file_path: str, text: str) -> str:
     """Extract title from filename or first meaningful line."""
@@ -102,6 +100,8 @@ def analyze_paper(file_path: str, text: str, title_override: str | None = None) 
     limitations = _extract_limitations_heuristic(text[:4000])
 
     try:
+        from ai_models.summarizer import summarize_text
+
         structured = summarize_text(text[:3000])
         problem = structured.get("problem", "N/A")
         methodology = structured.get("methodology", "N/A")

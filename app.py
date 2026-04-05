@@ -45,7 +45,6 @@ def _apply_streamlit_secrets_to_environ() -> None:
         return
 
 
-from ai_models.summarizer import summarize_text
 from pdf_processing.extract_tables import extract_tables_from_pdf
 from pdf_processing.extract_text import extract_text_from_pdf
 from research_search.semantic_search import search_research_papers
@@ -55,12 +54,6 @@ from analysis.combined_summary import generate_combined_summary
 from analysis.trend_analysis import generate_trend_charts
 from analysis.research_gap import detect_research_gaps, get_gap_themes
 from analysis.current_paper_analysis import analyze_current_paper_contribution
-from visualization.graph_generator import (
-    generate_matplotlib_charts,
-    generate_plotly_charts,
-    export_all_charts_to_images,
-)
-from rag.chat_engine import process_uploaded_pdf, answer_question_from_session
 from auth.streamlit_gate import (
     database_auth_enabled,
     init_auth_session_state,
@@ -87,6 +80,7 @@ render_sidebar_account()
 # -----------------------------
 # LOTTIE HELPER
 # -----------------------------
+@st.cache_data(show_spinner=False, ttl=3600)
 def load_lottie(url: str):
     try:
         r = requests.get(url, timeout=5)
@@ -544,6 +538,8 @@ if uploaded_file:
                 if st.button("Generate Summary", type="primary", key="gen_sum_view"):
                     with st.spinner("🤖 AI analyzing the research paper..."):
                         try:
+                            from ai_models.summarizer import summarize_text
+
                             structured = summarize_text(full_text)
                             st.session_state.summary = structured
                             st.toast("✅ Analysis complete!", icon="✅")
@@ -570,6 +566,11 @@ if uploaded_file:
             if tables:
                 df_t = tables[0]
                 try:
+                    from visualization.graph_generator import (
+                        generate_matplotlib_charts,
+                        generate_plotly_charts,
+                    )
+
                     mpl_figs = generate_matplotlib_charts(df_t)
                     plotly_figs = generate_plotly_charts(df_t)
                 except ValueError:
@@ -606,6 +607,8 @@ if uploaded_file:
             if st.session_state.rag_session is None or st.session_state.rag_session_pdf != str(pdf_path):
                 with st.spinner("Indexing PDF for retrieval..."):
                     try:
+                        from rag.chat_engine import process_uploaded_pdf
+
                         st.session_state.rag_session = process_uploaded_pdf(str(pdf_path))
                         st.session_state.rag_session_pdf = str(pdf_path)
                     except Exception as e:
@@ -621,7 +624,11 @@ if uploaded_file:
                 else:
                     with st.spinner("Retrieving relevant passages..."):
                         try:
-                            answer = answer_question_from_session(st.session_state.rag_session, question.strip(), top_k=5)
+                            from rag.chat_engine import answer_question_from_session
+
+                            answer = answer_question_from_session(
+                                st.session_state.rag_session, question.strip(), top_k=5
+                            )
                         except Exception as e:
                             st.error(f"RAG failed: {e}")
                         else:

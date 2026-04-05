@@ -7,8 +7,6 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, List
 
-from ai_models.summarizer import summarize_text
-
 
 def _normalize_for_counting(s: str) -> List[str]:
     """Extract meaningful terms from a string for frequency counting."""
@@ -89,6 +87,8 @@ def generate_combined_summary(structured_papers: List[dict[str, Any]]) -> tuple[
             synthesis += f" Paper {i} results: {r[:150]}. "
 
     try:
+        from ai_models.summarizer import summarize_text
+
         structured = summarize_text(synthesis[:2500])
         parts = [
             structured.get("problem", ""),
