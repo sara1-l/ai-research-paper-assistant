@@ -86,7 +86,8 @@ On a VM (Ubuntu example):
 1. Push the repo to **GitHub** (keep **`.env` out of git**; use `.gitignore` for `.env`).
 2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app** → pick repo, main file **`app.py`**.
 3. Under **App settings → Secrets**, paste TOML like `.streamlit/secrets.toml.example` with your real **`DATABASE_URL`** (and optional `VECTOR_BACKEND`).
-4. **Advanced settings**: Python **3.11** if offered; first boot may take **several minutes** (`torch` / `sentence-transformers` are large; free tier may be tight on RAM).
+4. **Research search on Cloud:** Add **`SEMANTICSCHOLAR_API_KEY`** (free from [Semantic Scholar API](https://www.semanticscholar.org/product/api)). Without it, Streamlit’s shared IPs often hit Semantic Scholar’s anonymous rate limit (~100 requests / 5 minutes). This is **unrelated to Supabase**—Supabase is only for your Postgres/auth data.
+5. **Advanced settings**: Python **3.11** if offered; first boot may take **several minutes** (`torch` / `sentence-transformers` are large; free tier may be tight on RAM).
 
 The app copies **`st.secrets`** into **`os.environ`** at startup so **`DATABASE_URL`** works the same as locally.
 
@@ -105,5 +106,6 @@ The app copies **`st.secrets`** into **`os.environ`** at startup so **`DATABASE_
 
 - [ ] Supabase: run **`scripts/create_users_table.sql`** (and `create extension vector` if using **`pgvector`**).
 - [ ] **`DATABASE_URL`** uses **`postgresql+psycopg2://`** and **`?sslmode=require`** if required.
+- [ ] Streamlit Cloud: **`SEMANTICSCHOLAR_API_KEY`** in Secrets if you use **Research Paper Search** (avoids shared-IP rate limits).
 - [ ] Never commit **`.env`** or Streamlit secrets with real passwords.
 

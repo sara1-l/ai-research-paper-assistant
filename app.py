@@ -365,6 +365,14 @@ with fc4:
 st.markdown("---")
 st.subheader("🔍 Research Paper Search")
 st.markdown("Search for research papers online in real-time using the Semantic Scholar API.")
+if not (os.environ.get("SEMANTICSCHOLAR_API_KEY") or "").strip():
+    st.info(
+        "**Streamlit Cloud tip:** Paper search uses the **Semantic Scholar** API, not Supabase. "
+        "Cloud apps share outbound IPs, so anonymous requests hit a low limit (~100 per 5 minutes). "
+        "Request a free key at [semanticscholar.org/product/api](https://www.semanticscholar.org/product/api), "
+        "then add this line to **App settings → Secrets** (TOML, keep the quotes): "
+        "`SEMANTICSCHOLAR_API_KEY = \"your-key-here\"`"
+    )
 st.markdown("<br>", unsafe_allow_html=True)
 
 col_input, col_btn = st.columns([3, 1])

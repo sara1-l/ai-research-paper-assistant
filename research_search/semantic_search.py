@@ -39,10 +39,15 @@ def _get_api_key() -> str | None:
         return key
     try:
         import streamlit as st
-        key = st.secrets.get("SEMANTICSCHOLAR_API_KEY", "")
-        return str(key).strip() or None
+
+        sec = st.secrets
+        if "SEMANTICSCHOLAR_API_KEY" in sec:
+            key = str(sec["SEMANTICSCHOLAR_API_KEY"]).strip()
+            if key:
+                return key
     except Exception:
-        return None
+        pass
+    return None
 
 
 def search_research_papers(query: str) -> pd.DataFrame:
